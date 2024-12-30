@@ -111,6 +111,10 @@ namespace AudioCueEditor
             //Update title
             Title += $" ({SettingsManager.Instance.CurrentVersionString})";
 
+            //-----------------------------------------------------
+            LoadFolderAndExtract_cmd();            
+            //-----------------------------------------------------
+
             //Check for updates silently
 #if !DEBUG
             CheckForUpdate(false);
@@ -304,6 +308,106 @@ namespace AudioCueEditor
                 AcbPath = null;
                 UndoManager.Instance.Clear();
             }
+        }
+        //-----------------------------------------------------
+        private async void LoadFolderAndExtract_cmd()
+        {
+            // 读取tempFile
+            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+            string exeDir = Path.GetDirectoryName(exePath);
+            string tempFile = Path.Combine(exeDir, "ace_temp.txt");
+            if (!File.Exists(tempFile)) {return;}
+
+            // 从tempFile读取要加载的文件夹路径
+            string inputPath = null;
+            try
+            {
+                inputPath = File.ReadAllText(tempFile).Trim();
+                
+                if (!Directory.Exists(inputPath))
+                {
+                    File.WriteAllText(tempFile, "ace:folder_not_exist");
+                    System.Windows.Application.Current.Shutdown();
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+                File.WriteAllText(tempFile, "ace:error_reading_folder");
+                System.Windows.Application.Current.Shutdown();
+                return;
+            }
+
+            // 将从inputPath中提取出的wav文件保存到output文件夹
+            string outputPath = Path.Combine(inputPath, "output");
+            // 如果输出目录存在，先删除
+            if (Directory.Exists(outputPath)) {Directory.Delete(outputPath, true);}
+            // 创建新的输出目录
+            Directory.CreateDirectory(outputPath);
+
+            // 获取所有ACB文件
+            var acbFiles = Directory.GetFiles(inputPath, "*.acb", SearchOption.AllDirectories);
+            // 如果没有找到ACB文件，直接退出
+            if (acbFiles.Length == 0)
+            {
+                File.WriteAllText(tempFile, "ace:folder_no_acb");
+                System.Windows.Application.Current.Shutdown();
+            }
+            
+            var controller = await this.ShowProgressAsync("Processing Files", 
+                "Loading and extracting audio files...", 
+                true, DialogSettings.Default);
+                
+            controller.Maximum = acbFiles.Length;
+            int progress = 0;
+
+            try
+            {
+                foreach(var acbFile in acbFiles)
+                {
+                    if (controller.IsCanceled) break;
+
+                    controller.SetMessage($"Processing {Path.GetFileName(acbFile)}...");
+
+                    // 加载ACB文件
+                    await Task.Run(() =>
+                    {
+                        AcbFile = new ACB_Wrapper(ACB_File.Load(acbFile));
+                    });
+
+                    if (AcbFile != null)
+                    {
+                        // 为每个ACB文件创建单独的输出目录
+                        string acbOutputPath = Path.Combine(outputPath, 
+                            Path.GetFileNameWithoutExtension(acbFile));
+                        Directory.CreateDirectory(acbOutputPath);
+
+                        // 导出所有音轨
+                        await ExtractAllTracks(acbOutputPath, true);
+                    }
+
+                    progress++;
+                    controller.SetProgress(progress);
+                }
+            }
+            catch (Exception ex)
+            {
+                await this.ShowMessageAsync("Error", 
+                    $"An error occurred: {ex.Message}", 
+                    MessageDialogStyle.Affirmative, 
+                    DialogSettings.Default);
+            }
+            finally
+            {
+                await controller.CloseAsync();
+            }
+
+            // 完成后清理
+            AcbFile = null;
+            AcbPath = null;
+            UndoManager.Instance.Clear();
+            File.WriteAllText(tempFile, "ace:extract_success");
+            System.Windows.Application.Current.Shutdown();
         }
         //-----------------------------------------------------
 
