@@ -229,6 +229,84 @@ namespace AudioCueEditor
             }
         }
 
+
+        //-----------------------------------------------------
+        public RelayCommand LoadFolderAndExtractCommand => new RelayCommand(LoadFolderAndExtract);
+
+        private async void LoadFolderAndExtract()
+        {
+            var folderDialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog();
+            folderDialog.Description = "Select folder containing ACB files...";
+            
+            if (folderDialog.ShowDialog() == true)
+            {
+                string inputPath = folderDialog.SelectedPath;
+                string outputPath = Path.Combine(inputPath, "output");
+                
+                // 如果输出目录存在，先删除
+                if (Directory.Exists(outputPath)) {Directory.Delete(outputPath, true);}
+                // 创建新的输出目录
+                Directory.CreateDirectory(outputPath);
+
+                // 获取所有ACB文件
+                var acbFiles = Directory.GetFiles(inputPath, "*.acb", SearchOption.AllDirectories);
+                
+                var controller = await this.ShowProgressAsync("Processing Files", 
+                    "Loading and extracting audio files...", 
+                    true, DialogSettings.Default);
+                    
+                controller.Maximum = acbFiles.Length;
+                int progress = 0;
+
+                try
+                {
+                    foreach(var acbFile in acbFiles)
+                    {
+                        if (controller.IsCanceled) break;
+
+                        controller.SetMessage($"Processing {Path.GetFileName(acbFile)}...");
+
+                        // 加载ACB文件
+                        await Task.Run(() =>
+                        {
+                            AcbFile = new ACB_Wrapper(ACB_File.Load(acbFile));
+                        });
+
+                        if (AcbFile != null)
+                        {
+                            // 为每个ACB文件创建单独的输出目录
+                            string acbOutputPath = Path.Combine(outputPath, 
+                                Path.GetFileNameWithoutExtension(acbFile));
+                            Directory.CreateDirectory(acbOutputPath);
+
+                            // 导出所有音轨
+                            await ExtractAllTracks(acbOutputPath, true);
+                        }
+
+                        progress++;
+                        controller.SetProgress(progress);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await this.ShowMessageAsync("Error", 
+                        $"An error occurred: {ex.Message}", 
+                        MessageDialogStyle.Affirmative, 
+                        DialogSettings.Default);
+                }
+                finally
+                {
+                    await controller.CloseAsync();
+                }
+
+                // 完成后清理
+                AcbFile = null;
+                AcbPath = null;
+                UndoManager.Instance.Clear();
+            }
+        }
+        //-----------------------------------------------------
+
         public RelayCommand NewAcbCommand => new RelayCommand(NewAcb);
         private async void NewAcb()
         {

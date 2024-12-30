@@ -24,6 +24,8 @@
                 <MenuItem Header="Load" Command="{Binding LoadAcbCommand}"/>
                 <MenuItem Header="Load (Force)" Command="{Binding ForceLoadAcbCommand}"/>
                 <MenuItem Header="Load (AWB)" Command="{Binding LoadAwbCommand}"/>
+                <!-- 添加新的菜单项 -->
+                <MenuItem Header="Load Folder and ExtractAll" Command="{Binding LoadFolderAndExtractCommand}"/>
                 <Separator/>
                 <MenuItem Header="Save" Command="{Binding SaveAcbCommand}"/>
                 <MenuItem Header="Save As.." Command="{Binding SaveAsAcbCommand}"/>
