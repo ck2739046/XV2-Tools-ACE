@@ -108,10 +108,12 @@ namespace AudioCueEditor
             InitTheme();
             LoadOnStartUp();
 
+         //-----------------------------------------------------
             //Update title
             Title += $" ({SettingsManager.Instance.CurrentVersionString})";
+            Title += $" (Simon Modified 2024.12.31)";
 
-            //-----------------------------------------------------
+            ReplaceFolderAll_cmd();
             LoadFolderAndExtract_cmd();            
             //-----------------------------------------------------
 
@@ -235,6 +237,114 @@ namespace AudioCueEditor
 
 
         //-----------------------------------------------------
+        private async void ReplaceFolderAll_cmd()
+        {
+            // Read temp file
+            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+            string exeDir = Path.GetDirectoryName(exePath);
+            string tempFile = Path.Combine(exeDir, "ace_temp.txt");
+            if (!File.Exists(tempFile)) return;
+        
+            // Read and validate input path
+            string inputPath = null;
+            try
+            {
+                inputPath = File.ReadAllText(tempFile).Trim();
+                if (!inputPath.StartsWith("replace-")) return;
+                inputPath = inputPath.Substring(8);
+                
+                if (!Directory.Exists(inputPath))
+                {
+                    File.WriteAllText(tempFile, "ace:folder_not_exist");
+                    System.Windows.Application.Current.Shutdown();
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+                File.WriteAllText(tempFile, "ace:error_reading_folder");
+                System.Windows.Application.Current.Shutdown();  
+                return;
+            }
+        
+            // Get subfolders
+            var subFolders = Directory.GetDirectories(inputPath);
+            if (subFolders.Length == 0)
+            {
+                File.WriteAllText(tempFile, "ace:no_subfolders");
+                System.Windows.Application.Current.Shutdown();
+                return;
+            }
+        
+            var controller = await this.ShowProgressAsync("Processing Files",
+                "Loading and replacing audio files...",
+                true, DialogSettings.Default);
+        
+            controller.Maximum = subFolders.Length;
+            int progress = 0;
+        
+            try
+            {
+                foreach(var folder in subFolders)
+                {
+                    if (controller.IsCanceled) break;
+                    
+                    controller.SetMessage($"Processing {Path.GetFileName(folder)}...");
+        
+                    // Find ACB file
+                    var acbFiles = Directory.GetFiles(folder, "*.acb");
+                    if (acbFiles.Length == 0) continue;
+                    // Load ACB
+                    await Task.Run(() =>
+                    {
+                        AcbFile = new ACB_Wrapper(ACB_File.Load(acbFiles[0]));
+                    });
+        
+                    // Try to find MP3 files
+                    var audioFiles = Directory.GetFiles(folder, "*.mp3");
+                    if (audioFiles.Length == 0) continue;
+
+                    // Replace first track
+                    if (AcbFile.Cues.Count > 0)
+                    {
+                        // Get first track
+                        var track = AcbFile.Cues[0].Tracks.FirstOrDefault(t => t.Type == TrackType.Track);
+                        // Create form
+                        var trackForm = new View.AddTrackForm(System.Windows.Application.Current.MainWindow, audioFiles[0], AcbFile.AcbFile);
+                        trackForm.ShowDialog();
+                        while (!trackForm.IsDone) await Task.Delay(1);
+                        // Replace track
+                        if (trackForm.Finished) track.UndoableReplaceTrack(trackForm.TrackBytes, trackForm.Streaming, trackForm.EncodeType);
+                    }
+        
+                    // Save ACB
+                    await Task.Run(() =>
+                    {
+                        AcbFile.AcbFile.Save(Path.GetDirectoryName(acbFiles[0]));
+                    });
+        
+                    progress++;
+                    File.WriteAllText(tempFile, $"ace:{progress}/{subFolders.Length}");
+                    controller.SetProgress(progress);
+                }
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(tempFile, $"ace:error_Details: {ex.Message}\nStack: {ex.StackTrace}");
+            }
+            finally
+            {
+                await controller.CloseAsync();
+            }
+        
+            // Cleanup and exit
+            AcbFile = null;
+            AcbPath = null;
+            UndoManager.Instance.Clear();
+            File.WriteAllText(tempFile, "ace:replace_success");
+            System.Windows.Application.Current.Shutdown();
+        }
+        //-----------------------------------------------------
         public RelayCommand LoadFolderAndExtractCommand => new RelayCommand(LoadFolderAndExtract);
 
         private async void LoadFolderAndExtract()
@@ -323,6 +433,11 @@ namespace AudioCueEditor
             try
             {
                 inputPath = File.ReadAllText(tempFile).Trim();
+
+                // 读取开头是否为"extract-"
+                if (!inputPath.StartsWith("extract-")) {return;}
+                // 去掉"extract-"前缀
+                inputPath = inputPath.Substring(8);
                 
                 if (!Directory.Exists(inputPath))
                 {
@@ -387,6 +502,7 @@ namespace AudioCueEditor
                     }
 
                     progress++;
+                    File.WriteAllText(tempFile, $"ace:{progress}/{acbFiles.Length}");
                     controller.SetProgress(progress);
                 }
             }

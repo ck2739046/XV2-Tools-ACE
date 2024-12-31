@@ -98,3 +98,5 @@ ExportedObj/
 *.pdb
 *.opendb
 
+.idea/
+.vscode/
